@@ -1,0 +1,14 @@
+.idea
+.DS_Store
+.mvn
+
+*.class
+target/*    
+expressions/.vscode
+expressions/app/*
+target/*
+
+presentations/*
+out/*
+
+src/test/resources/*
