@@ -41,12 +41,15 @@ public class RandomSet<T> {
         if (index < 0) {
             return false;
         }
+        int arrIndex = values[index];
+        Object last = arr[size - 1];
         keys[index] = delMark;
-        --cnt;
-        --size;
-        if (values[index] != size) {
-            arr[values[index]] = arr[size];
-        	values[findKey(arr[size])] = values[index];
+        cnt--;
+        size--;
+        if (arrIndex != size) {
+            arr[arrIndex] = last;
+            int lastKeyIndex = findKey(last);
+            values[lastKeyIndex] = arrIndex;
         }
         arr[size] = null;
         return true;
@@ -57,6 +60,9 @@ public class RandomSet<T> {
     }
 
     public T getRandom() {
+        if (size == 0) {
+            throw new EmptySetException();
+        }
         return (T) arr[rand.nextInt(size)];
     }
 
@@ -68,7 +74,7 @@ public class RandomSet<T> {
     private int findKey(Object key) {
         int i = getInd(key);
         while (keys[i] != null) {
-            if (keys[i] != delMark && keys[i] == key) {
+            if (keys[i] != delMark && keys[i].equals(key)) {
                 return i;
             }
             i += 1;
