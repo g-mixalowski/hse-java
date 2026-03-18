@@ -4,200 +4,157 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
-import javafx.scene.input.KeyCode;
 import javafx.scene.input.MouseButton;
+import javafx.util.Callback;
 
 import java.io.IOException;
 import java.nio.file.*;
-import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Comparator;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class MainController {
 
-    @FXML
-    public ListView<Path> left;
+    @FXML private ListView<Path> leftPane;
+    @FXML private ListView<Path> rightPane;
+    @FXML private Label leftPathLabel;
+    @FXML private Label rightPathLabel;
+    @FXML private Button btnCopy;
+    @FXML private Button btnMove;
+    @FXML private Button btnDelete;
 
-    @FXML
-    public ListView<Path> right;
-
-    @FXML
-    public Button leftBack;
-
-    @FXML
-    public Button rightBack;
-
-    
-    @FXML
-    public Button move;
-
-    private Path leftCurPath;
-    private Path rightCurPath;
-
-    private boolean leftSelected;
-    
-    public void setInitialDirs(Path leftStart, Path rightStart) {
-        leftCurPath = leftStart;
-        rightCurPath = rightStart;
-        initialize();
-    }
+    private Path leftDir;
+    private Path rightDir;
+    private ListView<Path> focusedPane;
 
     public void initialize() {
-        showPanel(left);
-        showPanel(right);
+        if (leftDir == null) leftDir = Paths.get(System.getProperty("user.home"));
+        if (rightDir == null) rightDir = Paths.get(System.getProperty("user.home"));
 
-        updateLeft();
-        updateRight();
-
-        leftBack.setOnAction(e -> goParent(left));
-        rightBack.setOnAction(e -> goParent(right));
-
-        move.setOnAction(e -> moveSelected());
-
-        left.setOnMouseClicked(event -> {
-            if (event.getButton() == MouseButton.PRIMARY && event.getClickCount() == 2) {
-                goSelected(left);
-            }
-        });
-        right.setOnMouseClicked(event -> {
-            if (event.getButton() == MouseButton.PRIMARY && event.getClickCount() == 2) {
-                goSelected(right);
-            }
-        });
-
-        left.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) -> {
-            if (newVal != null) {
-                leftSelected = true;
-                right.getSelectionModel().clearSelection();
-            }
-        });
-        right.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) -> {
-            if (newVal != null) {
-                leftSelected = false;
-                left.getSelectionModel().clearSelection();
-            }
-        });
-    }
-
-    private void showPanel(ListView<Path> paths) {
-        paths.setCellFactory(lv -> new ListCell<>() {
+        Callback<ListView<Path>, ListCell<Path>> cellFactory = lv -> new ListCell<>() {
             @Override
             protected void updateItem(Path item, boolean empty) {
                 super.updateItem(item, empty);
                 if (empty || item == null) {
                     setText(null);
                 } else {
-                    String name = item.getFileName().toString();
-                    if (Files.isDirectory(item)) {
-                        name += "/";
+                    if (item.getFileName() == null) setText(item.toString());
+                    else setText(item.getFileName().toString());
+                    if (Files.isDirectory(item)) setStyle("-fx-font-weight: bold;");
+                    else setStyle("");
+                }
+            }
+        };
+
+        leftPane.setCellFactory(cellFactory);
+        rightPane.setCellFactory(cellFactory);
+
+        setupPaneInteraction(leftPane, true);
+        setupPaneInteraction(rightPane, false);
+
+        btnCopy.setOnAction(e -> transferSelected(TransferOp.COPY));
+        btnMove.setOnAction(e -> transferSelected(TransferOp.MOVE));
+        btnDelete.setOnAction(e -> transferSelected(TransferOp.DELETE));
+
+        refreshBoth();
+    }
+
+    public void setInitialDirs(Path leftStart, Path rightStart) {
+        if (leftStart != null) leftDir = leftStart;
+        if (rightStart != null) rightDir = rightStart;
+        if (leftPane != null && rightPane != null) refreshBoth();
+    }
+
+    private void setupPaneInteraction(ListView<Path> pane, boolean isLeft) {
+        pane.setOnMouseClicked(evt -> {
+            focusedPane = pane;
+            if (evt.getButton() == MouseButton.PRIMARY && evt.getClickCount() == 2) {
+                Path sel = pane.getSelectionModel().getSelectedItem();
+                if (sel == null) return;
+
+                Path current = isLeft ? leftDir : rightDir;
+
+                if (sel.equals(current.getParent())) {
+                    if (current.getParent() != null) {
+                        if (isLeft) leftDir = current.getParent();
+                        else rightDir = current.getParent();
+                        refreshBoth();
                     }
-                    setText(name);
+                    return;
+                }
+
+                if (Files.isDirectory(sel)) {
+                    if (isLeft) leftDir = sel;
+                    else rightDir = sel;
+                    refreshBoth();
                 }
             }
         });
     }
 
-    private void updateLeft() {
-        updatePanel(left, leftCurPath);
-    }
+    private enum TransferOp { COPY, MOVE, DELETE }
 
-    private void updateRight() {
-        updatePanel(right, rightCurPath);
-    }
+    private void transferSelected(TransferOp op) {
+        if (focusedPane == null) return;
+        Path selected = focusedPane.getSelectionModel().getSelectedItem();
+        if (selected == null) return;
 
-    private void updatePanel(ListView<Path> paths, Path dir) {
-        try {
-            ObservableList<Path> items = Files.list(dir).collect(Collectors.toCollection(FXCollections::observableArrayList));
-            paths.setItems(items);
-        } catch(IOException e) {
-            alert("Ошибка (highly likely permission denied)");
-            goParent(paths);
-        }
-    }
+        Path sourceDir = (focusedPane == leftPane) ? leftDir : rightDir;
+        Path targetDir = (focusedPane == leftPane) ? rightDir : leftDir;
 
-    private void goParent(ListView<Path> paths) {
-        Path curPath = (paths == left) ? leftCurPath : rightCurPath;
-        Path parent = curPath.getParent();
-        goFolder(paths, parent);
-    }
+        if (selected.equals(sourceDir.getParent())) return;
 
-    private void goSelected(ListView<Path> paths) {
-        Path selected = paths.getSelectionModel().getSelectedItem();
-        goFolder(paths, selected);
-    }
+        Path src = sourceDir.resolve(selected.getFileName());
 
-    private void moveSelected() {
-        Path source = leftSelected ? left.getSelectionModel().getSelectedItem() : right.getSelectionModel().getSelectedItem();
-        Path targetDir = leftSelected ? rightCurPath : leftCurPath;
-
-        if (!Files.isDirectory(targetDir)) {
-            alert("NO DIR HUH");
-            return;
-        }
-
-        Path target = targetDir.resolve(source.getFileName());
-
-        if (target.equals(source)) {
-            return;
-        }
-
-        try {
-            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
-            updateLeft();
-            updateRight();
-        } catch(IOException e) {
+        if (op == TransferOp.DELETE) {
             try {
-                recCopy(source, target);
-                recDel(source);
-                updateLeft();
-                updateRight();
-            } catch(IOException e2) {
-                alert("CAN't MOVE");
-            }
+                Files.deleteIfExists(src);
+            } catch (IOException ignored) {}
+            refreshBoth();
+            return;
         }
-    }
 
-    private void recCopy(Path source, Path target) throws IOException {
-        if (Files.isDirectory(source)) {
-            Files.createDirectories(target);
-            try (DirectoryStream<Path> stream = Files.newDirectoryStream(source)) {
-                for (Path entry : stream) {
-                    recCopy(entry, target.resolve(entry.getFileName()));
+        Path dst = targetDir.resolve(selected.getFileName());
+
+        try {
+            if (op == TransferOp.COPY) {
+                if (Files.isDirectory(src)) {
+                    if (!Files.exists(dst)) Files.createDirectories(dst);
+                } else {
+                    Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING);
                 }
+            } else if (op == TransferOp.MOVE) {
+                Files.move(src, dst, StandardCopyOption.REPLACE_EXISTING);
             }
-        } else {
-            Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException ignored) {}
+
+        refreshBoth();
+    }
+
+    private void refreshBoth() {
+        safeRefresh(leftPane, leftDir, leftPathLabel);
+        safeRefresh(rightPane, rightDir, rightPathLabel);
+    }
+
+    private void safeRefresh(ListView<Path> pane, Path dir, Label label) {
+        if (dir == null) {
+            pane.setItems(FXCollections.observableArrayList());
+            if (label != null) label.setText("");
+            return;
         }
-    }
 
-    private void recDel(Path path) throws IOException {
-        if (Files.isDirectory(path)) {
-            try (DirectoryStream<Path> stream = Files.newDirectoryStream(path)) {
-                for (Path entry : stream) {
-                    recDel(entry);
-                }
-            }
-        }
-        Files.delete(path);
-    }
+        ObservableList<Path> items = FXCollections.observableArrayList();
+        Path parent = dir.getParent();
+        if (parent != null) items.add(parent);
 
-    private void goFolder(ListView<Path> paths, Path folder) {
-        if (Files.isDirectory(folder)) {
-            if (paths == left) {
-                leftCurPath = folder;
-                updateLeft();
-            } else {
-                rightCurPath = folder;
-                updateRight();
-            }
-        }
-    }
+        try (Stream<Path> stream = Files.list(dir)) {
+            var sorted = stream
+                    .sorted(Comparator.comparing(p -> p.getFileName().toString().toLowerCase()))
+                    .collect(Collectors.toList());
+            items.addAll(sorted);
+        } catch (IOException ignored) {}
 
-    private void alert(String name) {
-        Alert alert = new Alert(Alert.AlertType.WARNING);
-        alert.setTitle(name);
-        alert.setHeaderText(null);
-        alert.setContentText("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-        alert.showAndWait();
+        pane.setItems(items);
+        if (label != null) label.setText(dir.toString());
     }
-
 }
