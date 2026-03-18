@@ -26,11 +26,23 @@ public class StreamWriter implements Runnable {
 
     @Override
     public void run() {
-        // Writer threads are intentionally infinite for the task contract.
         while (true) {
-            output.print(message);
-            onTick.run();
+            try {
+                StreamingMonitor m = monitor;
+                if (m == null) {
+                    throw new IllegalStateException();
+                }
+                boolean allowed = m.awaitTurn(id);
+                if (!allowed) {
+                    return;
+                }
+                output.print(message);
+                onTick.run();
+                m.tickDone(id);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
         }
     }
-
 }
