@@ -7,7 +7,7 @@
       prefHeight="421.0" prefWidth="627.0"
       xmlns="http://javafx.com/javafx/17.0.12"
       xmlns:fx="http://javafx.com/fxml/1"
-      fx:controller="hse.java.commander.FilePanelController">
+      fx:controller="hse.java.commander.MainController">
 
     <HBox prefHeight="370.0" prefWidth="627.0">
         <VBox>
